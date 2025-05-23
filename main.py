@@ -1,40 +1,76 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-from PIL import Image
 import pickle
+from PIL import Image
+import tempfile
+import os
+import shutil
+import base64
 
-# Cargar modelo
-model = tf.keras.models.load_model("mineral_classifier_model.h5")
+st.set_page_config(page_title="🔍 Mineral Recognition", layout="centered")
 
-# Lista de clases (puedes también cargarla desde un .pkl)
-# Ejemplo:
-# with open("class_names.pkl", "rb") as f:
-#     class_names = pickle.load(f)
-class_names = ['Amethyst', 'Azurite', 'Calcite', 'Fluorite', 'Galena', 'Malachite', 'Quartz']
+logo = Image.open("logo-r.png")
+st.image(logo,width=150)
 
-# Configuración de la app
-st.set_page_config(page_title="Clasificador de Minerales", layout="centered")
-st.title("🧪 Clasificador de Minerales con CNN")
+st.title("Mineral Recognition")
 
-uploaded_file = st.file_uploader("📸 Sube una imagen de un mineral", type=["jpg", "jpeg", "png"])
+img_height = 180
+img_width = 180
 
-if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Imagen cargada", use_column_width=True)
+# Cargar modelo y clases
+model_file = st.file_uploader("📁 Carga tu modelo `.keras`", type=["keras"])
+classes_file = st.file_uploader("📁 Carga el archivo `class_names.pkl`", type=["pkl"])
 
-    # Preprocesar
-    img_height = 180
-    img_width = 180
-    img = image.resize((img_width, img_height))
-    img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
+if model_file and classes_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".keras") as tmp_model:
+        tmp_model.write(model_file.read())
+        model_path = tmp_model.name
 
-    # Predecir
-    predictions = model.predict(img_array)
-    predicted_index = np.argmax(predictions[0])
-    predicted_class = class_names[predicted_index]
-    confidence = 100 * np.max(predictions[0])
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as tmp_class:
+        tmp_class.write(classes_file.read())
+        classes_path = tmp_class.name
 
-    # Mostrar resultado
-    st.markdown(f"### 🧠 Predicción: **{predicted_class}**")
-    st.markdown(f"Confianza: **{confidence:.2f}%**")
+    model = tf.keras.models.load_model(model_path, compile=False)
+    with open(classes_path, "rb") as f:
+        class_names = pickle.load(f)
+
+    st.success("✅ Modelo y clases cargadas correctamente.")
+
+    uploaded_image = st.file_uploader("📸 Sube una imagen para clasificar", type=["jpg", "jpeg", "png"])
+
+    if uploaded_image:
+        image = Image.open(uploaded_image).convert("RGB")
+        st.image(image, caption="🖼 Imagen cargada", use_container_width=True)
+
+        if st.button("🔍 Predecir"):
+
+            tmp_dir = tempfile.mkdtemp()
+            class_dir = os.path.join(tmp_dir, "dummy")
+            os.makedirs(class_dir, exist_ok=True)
+            image_path = os.path.join(class_dir, "img.jpg")
+            image.save(image_path)
+
+
+            ds = tf.keras.utils.image_dataset_from_directory(
+                tmp_dir,
+                image_size=(img_height, img_width),
+                batch_size=1,
+                shuffle=False
+            )
+
+            for images, _ in ds:
+                preds = model.predict(images)
+                break
+
+            predicted_index = np.argmax(preds[0])
+            predicted_class = class_names[predicted_index]
+            confidence = 100 * np.max(preds[0])
+
+            st.markdown(f"### 🧠 Predicción: **{predicted_class}**")
+            st.markdown(f"📈 Confianza: **{confidence:.2f}%**")
+
+            shutil.rmtree(tmp_dir)
+
+else:
+    st.info("📌 Carga tu modelo `.keras` y archivo `class_names.pkl` para comenzar.")
